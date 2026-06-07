@@ -87,7 +87,7 @@ export async function POST(request: Request) {
     await prisma.generationLog.create({
       data: {
         prompt: "generation attempt",
-        model: "gemini-2.0-flash",
+        model: "gemini-2.5-flash",
         success: false,
         error: message,
       },

@@ -21,7 +21,7 @@ export async function generateArticleWithGemini(
     throw new Error("GEMINI_API_KEY is not configured");
   }
 
-  const modelName = "gemini-2.0-flash";
+  const modelName = "gemini-2.5-flash";
   const genAI = new GoogleGenerativeAI(apiKey);
   const model = genAI.getGenerativeModel({
     model: modelName,
