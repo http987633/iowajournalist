@@ -93,26 +93,41 @@ Return ONLY valid JSON with this exact structure:
   "category": "category name"
 }`;
 
-  const result = await model.generateContent(prompt);
-  const raw = result.response.text().trim();
-  const parsed = parseGeminiArticleJson(raw) as Omit<GeneratedArticle, "slug"> & {
-    slug?: string;
-  };
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const result = await model.generateContent(prompt);
+      const raw = result.response.text().trim();
+      const parsed = parseGeminiArticleJson(raw) as Omit<GeneratedArticle, "slug"> & {
+        slug?: string;
+      };
 
-  const slug = parsed.slug || toSlug(parsed.title);
+      const slug = parsed.slug || toSlug(parsed.title);
 
-  return {
-    article: {
-      title: parsed.title,
-      slug,
-      excerpt: parsed.excerpt,
-      content: parsed.content,
-      metaTitle: parsed.metaTitle,
-      metaDesc: parsed.metaDesc,
-      tags: parsed.tags || [],
-      category: parsed.category || category || "General",
-    },
-    model: modelName,
-    prompt,
-  };
+      return {
+        article: {
+          title: parsed.title,
+          slug,
+          excerpt: parsed.excerpt,
+          content: parsed.content,
+          metaTitle: parsed.metaTitle,
+          metaDesc: parsed.metaDesc,
+          tags: parsed.tags || [],
+          category: parsed.category || category || "General",
+        },
+        model: modelName,
+        prompt,
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const retryable =
+        lastError.message.includes("503") ||
+        lastError.message.includes("429") ||
+        lastError.message.includes("high demand");
+      if (!retryable || attempt === 3) break;
+      await new Promise((r) => setTimeout(r, 10000 * (attempt + 1)));
+    }
+  }
+
+  throw lastError ?? new Error("Gemini generation failed");
 }
