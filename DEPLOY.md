@@ -2,11 +2,15 @@
 
 代码已推送到：https://github.com/http987633/iowajournalist
 
-## 第一步：创建数据库（Neon 免费）
+## 第一步：TiDB Cloud 数据库（你已创建 ✅）
 
-1. 打开 https://neon.tech 注册
-2. 新建 Project，Region 选 US (离 Iowa 近)
-3. 复制 **Connection string**（带 `?sslmode=require`）
+1. 点击项目 **「爱荷华州记者」** 进入集群
+2. 右上角点击 **Connect（连接）**
+3. 选择 **General** 或 **Prisma**，复制连接串，格式如：
+   ```
+   mysql://user:password@host:4000/database?sslaccept=strict
+   ```
+4. 或直接在 Vercel Marketplace 安装 [TiDB Cloud 集成](https://vercel.com/marketplace/tidb-cloud) 自动注入环境变量
 
 ## 第二步：Vercel 导入项目
 
