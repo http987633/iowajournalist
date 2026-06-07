@@ -1,8 +1,6 @@
 import { readFileSync } from "fs";
 import { resolve } from "path";
 import { PrismaClient } from "@prisma/client";
-import { generateArticleWithGemini } from "../src/lib/gemini";
-import { tagsToString } from "../src/lib/slug";
 
 function loadEnv() {
   const envPath = resolve(process.cwd(), ".env.production.local");
@@ -20,7 +18,7 @@ function loadEnv() {
     ) {
       value = value.slice(1, -1);
     }
-    if (!process.env[key]) process.env[key] = value;
+    if (value && !process.env[key]) process.env[key] = value;
   }
 }
 
@@ -54,34 +52,45 @@ const TOPICS = [
   "Creating a portfolio for Iowa journalism job applications",
 ];
 
+const SITE_URL = "https://iowajournalist.org";
+
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function generateWithRetry(keyword: string, attempts = 4) {
-  for (let i = 0; i < attempts; i++) {
-    try {
-      return await generateArticleWithGemini(keyword);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const retryable =
-        message.includes("503") ||
-        message.includes("429") ||
-        message.includes("high demand");
-      if (!retryable || i === attempts - 1) throw error;
-      await sleep(8000 * (i + 1));
+async function generateViaProduction(keyword: string, cronSecret: string) {
+  for (let i = 0; i < 5; i++) {
+    const res = await fetch(`${SITE_URL}/api/generate`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${cronSecret}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ keyword }),
+    });
+    const data = await res.json();
+    if (res.ok) return data.article as { id: string; title: string; slug: string };
+    const err = (data as { error?: string }).error || "Unknown error";
+    if (err.includes("503") || err.includes("429") || err.includes("high demand")) {
+      await sleep(10000 * (i + 1));
+      continue;
     }
+    throw new Error(err);
   }
-  throw new Error("unreachable");
+  throw new Error("Max retries exceeded");
 }
 
 async function main() {
   loadEnv();
   const prisma = new PrismaClient();
+  const cronSecret = process.env.CRON_SECRET;
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL missing");
+  if (!cronSecret) throw new Error("CRON_SECRET missing");
+
   const target = Number(process.argv[2] || 25);
 
   const allArticles = await prisma.article.findMany({
-    select: { id: true, title: true, slug: true, content: true, excerpt: true },
+    select: { id: true, title: true, content: true, excerpt: true },
   });
 
   const chineseArticles = allArticles.filter(
@@ -95,71 +104,53 @@ async function main() {
     await prisma.article.deleteMany({
       where: { id: { in: chineseArticles.map((a) => a.id) } },
     });
-    console.log(
-      `Deleted ${chineseArticles.length} Chinese article(s):`,
-      chineseArticles.map((a) => a.title).join(" | ")
-    );
-  } else {
-    console.log("No Chinese articles found to delete.");
+    console.log(`Deleted ${chineseArticles.length} Chinese article(s).`);
   }
 
-  const existingSlugs = new Set(
-    (await prisma.article.findMany({ select: { slug: true } })).map((a) => a.slug)
-  );
+  const publishedCount = await prisma.article.count({
+    where: { status: "PUBLISHED", slug: { not: "welcome-to-iowa-journalist" } },
+  });
+  const needed = Math.max(0, target - publishedCount);
+  console.log(`Already have ${publishedCount} AI articles. Generating ${needed} more...`);
 
   let created = 0;
-  for (const keyword of TOPICS.slice(0, target)) {
+  for (const keyword of TOPICS) {
+    if (created >= needed) break;
+
+    const exists = await prisma.article.findFirst({
+      where: {
+        OR: [
+          { title: { contains: keyword.slice(0, 40), mode: "insensitive" } },
+          { content: { contains: keyword.slice(0, 30), mode: "insensitive" } },
+        ],
+        status: "PUBLISHED",
+      },
+    });
+    if (exists) {
+      console.log(`Skip (exists): ${keyword}`);
+      continue;
+    }
+
     try {
-      console.log(`Generating (${created + 1}/${target}): ${keyword}`);
-      const { article, model, prompt } = await generateWithRetry(keyword);
+      console.log(`Generating (${created + 1}/${needed}): ${keyword}`);
+      const draft = await generateViaProduction(keyword, cronSecret);
 
-      let slug = article.slug;
-      if (existingSlugs.has(slug)) slug = `${slug}-${Date.now()}`;
-      existingSlugs.add(slug);
-
-      const saved = await prisma.article.create({
-        data: {
-          title: article.title,
-          slug,
-          excerpt: article.excerpt,
-          content: article.content,
-          status: "PUBLISHED",
-          source: "GEMINI_AUTO",
-          category: article.category,
-          tags: tagsToString(article.tags),
-          metaTitle: article.metaTitle,
-          metaDesc: article.metaDesc,
-          publishedAt: new Date(),
-        },
-      });
-
-      await prisma.generationLog.create({
-        data: {
-          articleId: saved.id,
-          prompt,
-          model,
-          success: true,
-        },
+      const published = await prisma.article.update({
+        where: { id: draft.id },
+        data: { status: "PUBLISHED", publishedAt: new Date() },
       });
 
       created++;
-      console.log(`Published: ${saved.title}`);
-      await sleep(5000);
+      console.log(`Published: ${published.title}`);
+      await sleep(8000);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`Failed: ${keyword} — ${message}`);
-      await prisma.generationLog.create({
-        data: {
-          prompt: keyword,
-          model: "gemini-2.5-flash",
-          success: false,
-          error: message,
-        },
-      });
     }
   }
 
-  console.log(`Done. Published ${created}/${target} articles.`);
+  const total = await prisma.article.count({ where: { status: "PUBLISHED" } });
+  console.log(`Done. Published ${created} new articles. Total published: ${total}`);
   await prisma.$disconnect();
 }
 
