@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ArticleStatus {
+  DRAFT
+  PUBLISHED
+  SCHEDULED
+}
+
+enum ArticleSource {
+  MANUAL
+  GEMINI_AUTO
+}
+
+model Article {
+  id          String        @id @default(cuid())
+  title       String
+  slug        String        @unique
+  excerpt     String?
+  content     String
+  status      ArticleStatus @default(DRAFT)
+  source      ArticleSource @default(MANUAL)
+  category    String?
+  tags        String        @default("")
+  metaTitle   String?
+  metaDesc    String?
+  outboundUrl String?
+  publishedAt DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model TopicQueue {
+  id        String   @id @default(cuid())
+  keyword   String
+  category  String?
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model GenerationLog {
+  id        String   @id @default(cuid())
+  articleId String?
+  prompt    String
+  model     String
+  tokens    Int?
+  success   Boolean
+  error     String?
+  createdAt DateTime @default(now())
+}
