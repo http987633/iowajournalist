@@ -90,9 +90,8 @@ export default function AdminGeneratePage() {
       <div className="mt-8 rounded-xl border border-zinc-200 bg-white p-5 text-sm text-zinc-600">
         <h2 className="font-semibold text-zinc-900">Auto-generation (Cron)</h2>
         <p className="mt-2">
-          Vercel Cron runs daily at 14:00 UTC. Set{" "}
-          <code className="rounded bg-zinc-100 px-1">AUTO_PUBLISH_GEMINI=true</code>{" "}
-          to auto-publish without review (not recommended).
+          Vercel 每天 <strong>14:00 UTC</strong>（爱荷华时间约早上 8–9 点）自动调用 Gemini
+          生成 <strong>1 篇文章并直接发布</strong>。话题队列为空时会从内置话题池随机选取。
         </p>
       </div>
     </div>

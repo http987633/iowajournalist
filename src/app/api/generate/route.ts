@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAdminAuthenticated, verifyCronSecret } from "@/lib/auth";
-import { generateArticleWithGemini } from "@/lib/gemini";
+import { generateAndSaveArticle } from "@/lib/generate-article";
 import { prisma } from "@/lib/prisma";
-import { tagsToString } from "@/lib/slug";
 
 export async function POST(request: Request) {
   const isCron = await verifyCronSecret(request);
@@ -14,69 +13,13 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json().catch(() => ({}));
-    let keyword = body.keyword as string | undefined;
-    let category = body.category as string | undefined;
-    let topicId: string | undefined;
+    const autoPublishEnv = process.env.AUTO_PUBLISH_GEMINI === "true";
+    const publish = isCron || autoPublishEnv;
 
-    if (!keyword) {
-      const topic = await prisma.topicQueue.findFirst({
-        where: { used: false },
-        orderBy: { createdAt: "asc" },
-      });
-      if (!topic) {
-        return NextResponse.json({ error: "No topics in queue" }, { status: 404 });
-      }
-      keyword = topic.keyword;
-      category = topic.category || undefined;
-      topicId = topic.id;
-    }
-
-    const { article, model, prompt } = await generateArticleWithGemini(
-      keyword,
-      category
-    );
-
-    const autoPublish = process.env.AUTO_PUBLISH_GEMINI === "true";
-    const status = autoPublish ? "PUBLISHED" : "DRAFT";
-
-    const existingSlug = await prisma.article.findUnique({
-      where: { slug: article.slug },
-    });
-
-    const slug = existingSlug
-      ? `${article.slug}-${Date.now()}`
-      : article.slug;
-
-    const saved = await prisma.article.create({
-      data: {
-        title: article.title,
-        slug,
-        excerpt: article.excerpt,
-        content: article.content,
-        status,
-        source: "GEMINI_AUTO",
-        category: article.category,
-        tags: tagsToString(article.tags),
-        metaTitle: article.metaTitle,
-        metaDesc: article.metaDesc,
-        publishedAt: status === "PUBLISHED" ? new Date() : null,
-      },
-    });
-
-    if (topicId) {
-      await prisma.topicQueue.update({
-        where: { id: topicId },
-        data: { used: true },
-      });
-    }
-
-    await prisma.generationLog.create({
-      data: {
-        articleId: saved.id,
-        prompt,
-        model,
-        success: true,
-      },
+    const saved = await generateAndSaveArticle({
+      keyword: body.keyword as string | undefined,
+      category: body.category as string | undefined,
+      publish,
     });
 
     return NextResponse.json({ article: saved });

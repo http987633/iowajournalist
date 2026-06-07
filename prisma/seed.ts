@@ -1,23 +1,11 @@
 import { PrismaClient } from "@prisma/client";
+import { TOPIC_POOL } from "../src/lib/topic-pool";
 
 const prisma = new PrismaClient();
 
 async function main() {
-  const topics = [
-    "How to file a public records request in Iowa",
-    "Iowa journalist career paths and salary guide",
-    "Understanding Iowa's reporter shield privilege",
-    "Best practices for covering Iowa state legislature",
-    "Local news sustainability in rural Iowa communities",
-    "Investigative journalism resources for Iowa reporters",
-    "How to build sources in small-town Iowa",
-    "Covering Iowa caucuses as a local journalist",
-    "Ethics guide for Iowa newsrooms",
-    "Student journalism opportunities in Iowa universities",
-  ];
-
   await prisma.topicQueue.createMany({
-    data: topics.map((keyword) => ({ keyword })),
+    data: TOPIC_POOL.map((keyword) => ({ keyword })),
     skipDuplicates: true,
   });
 
